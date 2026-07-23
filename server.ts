@@ -587,6 +587,64 @@ function restartSchedulerInterval() {
 // Start scheduler on launch
 restartSchedulerInterval();
 
+// Helper to get active app password
+function getRequiredPassword(): string {
+  return process.env.APP_PASSWORD || process.env.ADMIN_PASSWORD || appState.settings.appPassword || "";
+}
+
+// Authentication endpoints
+app.get("/api/auth/status", (req, res) => {
+  const pwd = getRequiredPassword();
+  res.json({
+    requirePassword: !!pwd,
+    isConfigured: !!pwd,
+  });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  const { password } = req.body;
+  const required = getRequiredPassword();
+  if (!required) {
+    return res.json({ success: true, message: "Nenhuma senha é necessária." });
+  }
+  if (password === required) {
+    return res.json({ success: true, token: required });
+  }
+  return res.status(401).json({ success: false, error: "Senha incorreta. Tente novamente." });
+});
+
+app.post("/api/auth/set-password", (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const required = getRequiredPassword();
+
+  if (required && currentPassword !== required) {
+    return res.status(401).json({ success: false, error: "Senha atual incorreta." });
+  }
+
+  appState.settings.appPassword = newPassword ? String(newPassword).trim() : "";
+  saveState(appState);
+  return res.json({
+    success: true,
+    message: appState.settings.appPassword ? "Senha de proteção salva com sucesso!" : "Proteção por senha removida com sucesso!"
+  });
+});
+
+// Middleware to protect /api routes if password is set
+app.use("/api", (req, res, next) => {
+  if (req.path.startsWith("/auth/") || req.path === "/health") {
+    return next();
+  }
+  const required = getRequiredPassword();
+  if (!required) {
+    return next();
+  }
+  const provided = req.headers["x-app-password"] || req.query.app_password;
+  if (provided === required) {
+    return next();
+  }
+  return res.status(401).json({ error: "Acesso negado. Senha de acesso necessária.", code: "UNAUTHORIZED" });
+});
+
 // API Endpoints
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });

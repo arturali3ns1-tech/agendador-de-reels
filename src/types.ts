@@ -34,6 +34,7 @@ export interface Settings {
   intervalHours: number;
   autoScheduleEnabled: boolean;
   savedAccounts?: SavedAccount[];
+  appPassword?: string;
 }
 
 export interface LogEntry {

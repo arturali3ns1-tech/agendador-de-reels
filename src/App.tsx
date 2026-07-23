@@ -36,9 +36,28 @@ import {
   TrendingUp,
   Eye,
   BarChart3,
-  ArrowUpRight
+  ArrowUpRight,
+  Lock,
+  Key,
+  ShieldCheck,
+  LogOut
 } from "lucide-react";
 import { Reel, Settings, LogEntry, QueueState, SavedAccount, AccountMetrics } from "./types";
+
+export const getStoredPassword = () => localStorage.getItem("reels_app_password") || "";
+
+export const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+  const pwd = getStoredPassword();
+  const headers = new Headers(options.headers || {});
+  if (pwd) {
+    headers.set("x-app-password", pwd);
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 && !url.includes("/api/auth/login") && !url.includes("/api/auth/status")) {
+    window.dispatchEvent(new Event("auth_unauthorized"));
+  }
+  return res;
+};
 
 export interface BulkReelItem {
   id: string;
@@ -404,6 +423,231 @@ function VideoThumbnailWithDuration({
   );
 }
 
+function LockScreen({ onLoginSuccess }: { onLoginSuccess: (pwd: string) => void }) {
+  const [inputPassword, setInputPassword] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputPassword.trim()) return;
+    setIsSubmitting(true);
+    setErrorMsg("");
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: inputPassword.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        localStorage.setItem("reels_app_password", inputPassword.trim());
+        onLoginSuccess(inputPassword.trim());
+      } else {
+        setErrorMsg(data.error || "Senha de acesso incorreta.");
+      }
+    } catch (err) {
+      setErrorMsg("Erro de conexão. Tente novamente.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-gradient-to-tr from-indigo-950/40 via-purple-950/20 to-slate-950 pointer-events-none" />
+      <div className="absolute w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl -top-20 -left-20 pointer-events-none" />
+      <div className="absolute w-96 h-96 bg-purple-600/10 rounded-full blur-3xl -bottom-20 -right-20 pointer-events-none" />
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="w-full max-w-md bg-slate-900/90 border border-slate-800 backdrop-blur-xl rounded-3xl p-8 shadow-2xl relative z-10 text-center"
+      >
+        <div className="w-16 h-16 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-indigo-400">
+          <Lock className="w-8 h-8" />
+        </div>
+
+        <h2 className="text-2xl font-black text-white tracking-tight mb-2">
+          Acesso Protegido
+        </h2>
+        <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+          Este Agendador de Reels está protegido por senha de segurança. Digite sua senha para entrar.
+        </p>
+
+        {errorMsg && (
+          <div className="mb-6 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-xs font-semibold text-rose-400 flex items-center justify-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="relative">
+            <Key className="w-5 h-5 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+            <input
+              type="password"
+              value={inputPassword}
+              onChange={(e) => setInputPassword(e.target.value)}
+              placeholder="Digite sua senha secreta..."
+              required
+              autoFocus
+              className="w-full bg-slate-950/80 border border-slate-800 focus:border-indigo-500 rounded-2xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition font-medium"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3.5 px-6 rounded-2xl text-sm shadow-lg shadow-indigo-600/25 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <RefreshCw className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <ShieldCheck className="w-5 h-5" />
+                <span>Entrar no Sistema</span>
+              </>
+            )}
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
+function PasswordSecurityCard() {
+  const [currentPwd, setCurrentPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSavePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPwd && newPwd !== confirmPwd) {
+      setStatusMsg({ type: 'error', text: 'A confirmação de senha não coincide.' });
+      return;
+    }
+    setLoading(true);
+    setStatusMsg(null);
+
+    try {
+      const res = await authenticatedFetch("/api/auth/set-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: currentPwd.trim(),
+          newPassword: newPwd.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (newPwd.trim()) {
+          localStorage.setItem("reels_app_password", newPwd.trim());
+        } else {
+          localStorage.removeItem("reels_app_password");
+        }
+        setStatusMsg({ type: 'success', text: data.message });
+        setCurrentPwd("");
+        setNewPwd("");
+        setConfirmPwd("");
+      } else {
+        setStatusMsg({ type: 'error', text: data.error || "Erro ao atualizar senha." });
+      }
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: "Erro ao se comunicar com o servidor." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+          <Lock className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+            Proteção por Senha de Acesso
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Defina uma senha secreta para que somente você possa acessar o painel online no Render.
+          </p>
+        </div>
+      </div>
+
+      {statusMsg && (
+        <div className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2 ${
+          statusMsg.type === 'success'
+            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+            : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+        }`}>
+          {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+          <span>{statusMsg.text}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSavePassword} className="space-y-3 pt-1">
+        <div>
+          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+            Senha Atual (se já configurou anteriormente)
+          </label>
+          <input
+            type="password"
+            value={currentPwd}
+            onChange={(e) => setCurrentPwd(e.target.value)}
+            placeholder="Senha atual (deixe em branco se for a primeira vez)"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Nova Senha de Acesso
+            </label>
+            <input
+              type="password"
+              value={newPwd}
+              onChange={(e) => setNewPwd(e.target.value)}
+              placeholder="Digite a nova senha..."
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Confirmar Nova Senha
+            </label>
+            <input
+              type="password"
+              value={confirmPwd}
+              onChange={(e) => setConfirmPwd(e.target.value)}
+              placeholder="Repita a nova senha..."
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+        </div>
+
+        <p className="text-[11px] text-slate-400 leading-tight">
+          * Para remover a proteção por senha, deixe a "Nova Senha" em branco e clique em Salvar.
+        </p>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+        >
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+          <span>Salvar Senha de Proteção</span>
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function App() {
   // Dark Mode State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -424,6 +668,54 @@ export default function App() {
       localStorage.setItem("theme", "light");
     }
   }, [isDarkMode]);
+
+  // Auth states
+  const [requirePassword, setRequirePassword] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+
+  const checkAuthStatus = async () => {
+    try {
+      const res = await fetch("/api/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.requirePassword) {
+          setRequirePassword(true);
+          const storedPwd = getStoredPassword();
+          if (!storedPwd) {
+            setIsAuthenticated(false);
+          } else {
+            const loginRes = await fetch("/api/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ password: storedPwd }),
+            });
+            const loginData = await loginRes.json();
+            if (loginRes.ok && loginData.success) {
+              setIsAuthenticated(true);
+            } else {
+              setIsAuthenticated(false);
+              localStorage.removeItem("reels_app_password");
+            }
+          }
+        } else {
+          setRequirePassword(false);
+          setIsAuthenticated(true);
+        }
+      }
+    } catch (err) {
+      console.error("Error checking auth status:", err);
+    }
+  };
+
+  useEffect(() => {
+    checkAuthStatus();
+    const handleUnauthorized = () => {
+      setIsAuthenticated(false);
+      localStorage.removeItem("reels_app_password");
+    };
+    window.addEventListener("auth_unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("auth_unauthorized", handleUnauthorized);
+  }, []);
 
   // App States
   const [reels, setReels] = useState<Reel[]>([]);
@@ -1503,6 +1795,17 @@ async function uploadFileInChunks(
   const publishedCount = filteredReels.filter(r => r.status === "published").length;
   const scheduledCount = filteredReels.filter(r => r.status === "scheduled").length;
 
+  if (requirePassword && !isAuthenticated) {
+    return (
+      <LockScreen
+        onLoginSuccess={() => {
+          setIsAuthenticated(true);
+          fetchState();
+        }}
+      />
+    );
+  }
+
   return (
     <div id="app" className="flex min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-300">
       {/* Click-outside backdrop overlay to close account dropdowns */}
@@ -2001,7 +2304,12 @@ async function uploadFileInChunks(
                   </div>
                 </div>
 
-                  {/* Integration Help Guide (Full width or span inside the same container) */}
+                {/* Password Security Protection Card */}
+                <div className="md:col-span-2 border-t border-slate-100 dark:border-slate-800 pt-6">
+                  <PasswordSecurityCard />
+                </div>
+
+                {/* Integration Help Guide (Full width or span inside the same container) */}
                   <div className="md:col-span-2 border-t border-slate-100 pt-6 mt-4 space-y-4">
                   <div className="flex items-center gap-2 text-indigo-950">
                     <Info className="h-5 w-5 text-indigo-600 shrink-0" />
