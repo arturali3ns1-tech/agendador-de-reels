@@ -1,0 +1,6 @@
+{
+  "name": "Agendador de Reels",
+  "description": "Agende e publique Reels no Instagram de forma automática a cada hora com auxílio de Inteligência Artificial para gerar legendas e ideias.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
